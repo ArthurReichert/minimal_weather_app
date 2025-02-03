@@ -24,28 +24,67 @@ class WeatherService {
   }
 
   Future<String> getCurrentCity() async {
+    try {
+      // Verificar permissão do usuário
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        print("Permissão de localização negada");
+        permission = await Geolocator.requestPermission();
+        
+        if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+          print("Usuário negou a permissão de localização");
+          return "";
+        }
+      }
 
-    // get permission from user
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
+      // Verificar se o GPS está ativado
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        print("Serviço de localização está desativado");
+        return "";
+      }
+
+      print("Obtendo posição atual...");
+      // Buscar localização atual
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high
+      );
+      
+      print("Posição obtida: Lat: ${position.latitude}, Long: ${position.longitude}");
+
+      // Tentar obter o clima diretamente usando as coordenadas
+      final response = await http.get(
+        Uri.parse(
+          "$BASE_URL?lat=${position.latitude}&lon=${position.longitude}&appid=$apiKey&units=metric"
+        )
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final cityName = data['name'];
+        print("Cidade encontrada via API: $cityName");
+        return cityName ?? "";
+      }
+
+      // Se não conseguir via API, tentar via geocoding
+      print("Tentando obter cidade via geocoding...");
+      try {
+        List<Placemark> placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude
+        );
+
+        String? city = placemarks[0].locality;
+        print("Cidade encontrada via geocoding: $city");
+        return city ?? "";
+      } catch (geocodingError) {
+        print("Erro no geocoding: $geocodingError");
+        return "";
+      }
+
+    } catch (e) {
+      print("Erro ao obter cidade atual: $e");
+      return "";
     }
-    
-
-    // fetch the current location
-    Position position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high
-    );
-
-    //convert the location into a list of placemark objects
-    List<Placemark> placemarks = await placemarkFromCoordinates(
-      position.latitude,
-      position.longitude
-    );
-
-    // extract the city name from the first placemark
-    String? city = placemarks[0].locality;
-
-    return city ?? "";
   }
 }
